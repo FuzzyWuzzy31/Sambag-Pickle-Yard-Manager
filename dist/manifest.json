@@ -1,0 +1,9 @@
+{
+  "name": "Pickleball Open Play Manager",
+  "short_name": "PickleManager",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#10b981",
+  "icons": []
+}
