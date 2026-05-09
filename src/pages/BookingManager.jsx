@@ -168,6 +168,37 @@ export default function BookingManagerPage() {
     return hours
   }, [bookings, bookingSettings.closing_time, bookingSettings.opening_time])
 
+  const timelineBookings = useMemo(() => {
+    const opening = timeToMinutes(bookingSettings.opening_time)
+    const closing = timeToMinutes(bookingSettings.closing_time)
+    const totalSlots = Math.max(closing - opening, 1)
+    const laneEnds = []
+
+    return bookings
+      .filter((booking) => booking.payment_status !== 'cancelled')
+      .map((booking) => {
+        const start = timeToMinutes(booking.start_time)
+        const end = timeToMinutes(booking.end_time)
+        const left = ((start - opening) / totalSlots) * 100
+        const width = ((end - start) / totalSlots) * 100
+
+        let lane = laneEnds.findIndex((laneEnd) => start >= laneEnd)
+        if (lane === -1) {
+          lane = laneEnds.length
+          laneEnds.push(end)
+        } else {
+          laneEnds[lane] = end
+        }
+
+        return {
+          booking,
+          lane,
+          left,
+          width,
+        }
+      })
+  }, [bookings, bookingSettings.closing_time, bookingSettings.opening_time])
+
   const timelineSwipeHandlers = useSwipeable({
     onSwipedLeft: () => shiftTimeline(320),
     onSwipedRight: () => shiftTimeline(-320),
@@ -421,41 +452,39 @@ export default function BookingManagerPage() {
                   <span>{formatHourFromTime(bookingSettings.closing_time)}</span>
                 </div>
 
-                <div className="mt-10 min-h-[7rem] rounded-2xl border border-white/5 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.03),_transparent_55%)] p-2">
-                  <div className="relative min-h-[6rem]">
-                    {bookings.map((booking, index) => {
-                      const start = timeToMinutes(booking.start_time)
-                      const end = timeToMinutes(booking.end_time)
-                      const opening = timeToMinutes(bookingSettings.opening_time)
-                      const closing = timeToMinutes(bookingSettings.closing_time)
-                      const totalSlots = closing - opening
-                      const left = ((start - opening) / totalSlots) * 100
-                      const width = ((end - start) / totalSlots) * 100
+                <div className="mt-10 min-h-[8rem] rounded-2xl border border-white/5 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.03),_transparent_55%)] p-2">
+                  <div
+                    className="relative"
+                    style={{
+                      minHeight: `${Math.max(8, 4 + timelineBookings.reduce((max, item) => Math.max(max, item.lane + 1), 0) * 3.75)}rem`,
+                    }}
+                  >
+                    {timelineBookings.map(({ booking, lane, left, width }, index) => {
                       const safeLeft = Math.max(0, left)
-                      const safeWidth = Math.min(100 - safeLeft, Math.max(width, 14))
+                      const safeWidth = Math.min(100 - safeLeft, Math.max(width, 10))
                       return (
                         <motion.div
                           key={booking.id}
                           initial={{ opacity: 0, y: 8 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: index * 0.03 }}
-                          className="absolute left-0 top-2 h-20"
-                          style={{ left: `${safeLeft}%`, width: `${safeWidth}%` }}
+                          className="absolute left-0 h-16"
+                          style={{ left: `${safeLeft}%`, top: `${lane * 3.75}rem`, width: `${safeWidth}%` }}
                         >
                           <div
-                            className={`h-full rounded-2xl border px-3 py-2 shadow-lg ${booking.payment_status === 'paid' ? 'border-emerald-300/30 bg-emerald-400/20' : booking.payment_status === 'cancelled' ? 'border-white/10 bg-white/10' : 'border-rose-300/30 bg-rose-400/20'}`}
+                            className={`h-full rounded-2xl border px-2.5 py-1.5 shadow-lg ${booking.payment_status === 'paid' ? 'border-emerald-300/30 bg-emerald-400/20' : booking.payment_status === 'cancelled' ? 'border-white/10 bg-white/10' : 'border-rose-300/30 bg-rose-400/20'}`}
                           >
                             <div className="flex h-full flex-col justify-between">
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
-                                  <div className="truncate text-sm font-semibold">{booking.player_name}</div>
-                                  <div className="text-[11px] text-white/70">{booking.start_time.slice(0, 5)}–{booking.end_time.slice(0, 5)}</div>
+                                  <div className="truncate text-[13px] font-semibold leading-tight">{booking.player_name}</div>
+                                  <div className="text-[10px] text-white/70">{booking.start_time.slice(0, 5)}–{booking.end_time.slice(0, 5)}</div>
                                 </div>
-                                <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${booking.payment_status === 'paid' ? 'bg-emerald-300 text-slate-950' : booking.payment_status === 'cancelled' ? 'bg-white/20 text-white' : 'bg-rose-300 text-slate-950'}`}>
+                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] ${booking.payment_status === 'paid' ? 'bg-emerald-300 text-slate-950' : booking.payment_status === 'cancelled' ? 'bg-white/20 text-white' : 'bg-rose-300 text-slate-950'}`}>
                                   {booking.payment_status}
                                 </span>
                               </div>
-                              <div className="text-xs font-medium text-white/85">₱{booking.total_amount}</div>
+                              <div className="text-[11px] font-medium text-white/85">₱{booking.total_amount}</div>
                             </div>
                           </div>
                         </motion.div>
