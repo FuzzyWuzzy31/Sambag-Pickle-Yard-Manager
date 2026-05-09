@@ -93,6 +93,7 @@ export default function BookingManagerPage() {
 
     const grouped = {}
     ;(data || []).forEach((row) => {
+      if (row.payment_status === 'cancelled') return
       if (!grouped[row.booking_date]) {
         grouped[row.booking_date] = { booking_date: row.booking_date, count: 0, paidCount: 0, unpaidCount: 0 }
       }
@@ -112,6 +113,7 @@ export default function BookingManagerPage() {
     for (let hour = openingHour; hour < closingHour; hour += 1) {
       const nextHour = hour + 1
       const activeBookings = bookings.filter((booking) => {
+        if (booking.payment_status === 'cancelled') return false
         const bookingStart = timeToMinutes(booking.start_time)
         const bookingEnd = timeToMinutes(booking.end_time)
         const slotStart = hour * 60
