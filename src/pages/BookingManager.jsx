@@ -15,10 +15,18 @@ export default function BookingManagerPage() {
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
-  const nameRef = useRef()
-  const startRef = useRef()
-  const endRef = useRef()
-  const notesRef = useRef()
+  const [bookingSettings, setBookingSettings] = useState({
+    day_rate: 200,
+    night_rate: 250,
+    opening_time: '06:00',
+    closing_time: '23:00',
+  })
+  const [bookingForm, setBookingForm] = useState({
+    playerName: '',
+    startTime: '',
+    endTime: '',
+    notes: '',
+  })
   const timelineRef = useRef(null)
 
   async function loadBookings(d = date) {
@@ -37,6 +45,28 @@ export default function BookingManagerPage() {
       setBookings(data || [])
     }
     setLoading(false)
+  }
+
+  async function loadBookingSettings() {
+    const { data, error } = await supabase
+      .from('booking_settings')
+      .select('day_rate, night_rate, opening_time, closing_time')
+      .eq('id', true)
+      .maybeSingle()
+
+    if (error) {
+      console.error('booking settings error', error)
+      return
+    }
+
+    if (data) {
+      setBookingSettings({
+        day_rate: data.day_rate ?? 200,
+        night_rate: data.night_rate ?? 250,
+        opening_time: (data.opening_time || '06:00:00').slice(0, 5),
+        closing_time: (data.closing_time || '23:00:00').slice(0, 5),
+      })
+    }
   }
 
   const hourlyTimeline = useMemo(() => {
@@ -82,6 +112,7 @@ export default function BookingManagerPage() {
 
   useEffect(() => {
     loadBookings(date)
+    loadBookingSettings()
     // subscribe to bookings changes and reload when anything changes
     const ch = supabase
       .channel('realtime-bookings')
@@ -96,10 +127,10 @@ export default function BookingManagerPage() {
 
   async function handleCreate(e) {
     e.preventDefault()
-    const player_name = nameRef.current.value.trim()
-    const start_time = startRef.current.value
-    const end_time = endRef.current.value
-    const notes = notesRef.current.value
+    const player_name = bookingForm.playerName.trim()
+    const start_time = bookingForm.startTime
+    const end_time = bookingForm.endTime
+    const notes = bookingForm.notes
     if (!player_name || !start_time || !end_time) return toast.error('Fill required fields')
     setSaving(true)
     try {
@@ -107,6 +138,7 @@ export default function BookingManagerPage() {
       if (error) throw error
       toast.success('Booking created')
       setShowAdd(false)
+      setBookingForm({ playerName: '', startTime: '', endTime: '', notes: '' })
       loadBookings(date)
     } catch (err) {
       console.error(err)
@@ -145,6 +177,41 @@ export default function BookingManagerPage() {
     toast.success('Booking cancelled')
     loadBookings(date)
   }
+
+  const estimatedBooking = useMemo(() => {
+    const start = bookingForm.startTime ? timeToMinutes(bookingForm.startTime) : null
+    const end = bookingForm.endTime ? timeToMinutes(bookingForm.endTime) : null
+    if (start === null || end === null || end <= start) {
+      return { hours: 0, total: 0, dayHours: 0, nightHours: 0, rateLabel: 'Set a valid time range' }
+    }
+
+    const opening = timeToMinutes(bookingSettings.opening_time)
+    const close = timeToMinutes(bookingSettings.closing_time)
+    const dayCutoff = timeToMinutes('18:00')
+    const clampedStart = Math.max(start, opening)
+    const clampedEnd = Math.min(end, close)
+
+    if (clampedEnd <= clampedStart) {
+      return { hours: 0, total: 0, dayHours: 0, nightHours: 0, rateLabel: 'Outside operating hours' }
+    }
+
+    const dayStart = Math.min(clampedEnd, dayCutoff)
+    const dayMinutes = Math.max(0, dayStart - clampedStart)
+    const nightStart = Math.max(clampedStart, dayCutoff)
+    const nightMinutes = Math.max(0, clampedEnd - nightStart)
+    const dayHours = dayMinutes / 60
+    const nightHours = nightMinutes / 60
+    const totalHours = (clampedEnd - clampedStart) / 60
+    const total = Math.round(dayHours * bookingSettings.day_rate + nightHours * bookingSettings.night_rate)
+
+    return {
+      hours: totalHours,
+      total,
+      dayHours,
+      nightHours,
+      rateLabel: nightHours > 0 && dayHours > 0 ? 'Mixed day/night pricing' : nightHours > 0 ? `Night rate ₱${bookingSettings.night_rate}/hr` : `Day rate ₱${bookingSettings.day_rate}/hr`,
+    }
+  }, [bookingForm.endTime, bookingForm.startTime, bookingSettings.day_rate, bookingSettings.closing_time, bookingSettings.night_rate, bookingSettings.opening_time])
 
   return (
     <DashboardShell title={{ label: 'Bookings', heading: `Booking Manager — ${date}` }} subtitle="Manage court reservations, payments, and cancellations">
@@ -279,12 +346,30 @@ export default function BookingManagerPage() {
           <form onSubmit={handleCreate} className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-6">
             <h3 className="mb-3 text-lg font-semibold">Add Booking</h3>
             <div className="space-y-3">
-              <input ref={nameRef} placeholder="Player name" className="w-full rounded-lg bg-white/3 px-3 py-2" />
+              <input value={bookingForm.playerName} onChange={(e) => setBookingForm((current) => ({ ...current, playerName: e.target.value }))} placeholder="Player name" className="w-full rounded-lg bg-white/3 px-3 py-2" />
               <div className="flex gap-2">
-                <input ref={startRef} type="time" className="w-1/2 rounded-lg bg-white/3 px-3 py-2" />
-                <input ref={endRef} type="time" className="w-1/2 rounded-lg bg-white/3 px-3 py-2" />
+                <input value={bookingForm.startTime} onChange={(e) => setBookingForm((current) => ({ ...current, startTime: e.target.value }))} type="time" className="w-1/2 rounded-lg bg-white/3 px-3 py-2" />
+                <input value={bookingForm.endTime} onChange={(e) => setBookingForm((current) => ({ ...current, endTime: e.target.value }))} type="time" className="w-1/2 rounded-lg bg-white/3 px-3 py-2" />
               </div>
-              <textarea ref={notesRef} placeholder="Notes (optional)" className="w-full rounded-lg bg-white/3 px-3 py-2" />
+              <textarea value={bookingForm.notes} onChange={(e) => setBookingForm((current) => ({ ...current, notes: e.target.value }))} placeholder="Notes (optional)" className="w-full rounded-lg bg-white/3 px-3 py-2" />
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">Rate preview</div>
+                <div className="mt-1 text-sm text-white/70">
+                  {bookingSettings.opening_time}–18:00: ₱{bookingSettings.day_rate}/hr
+                </div>
+                <div className="text-sm text-white/70">
+                  18:00–{bookingSettings.closing_time}: ₱{bookingSettings.night_rate}/hr
+                </div>
+                <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.22em] text-white/45">Estimated total</div>
+                    <div className="text-lg font-semibold text-white">₱{estimatedBooking.total}</div>
+                  </div>
+                  <div className="text-right text-xs text-white/55">
+                    {estimatedBooking.hours > 0 ? `${estimatedBooking.hours.toFixed(2)} hrs` : estimatedBooking.rateLabel}
+                  </div>
+                </div>
+              </div>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setShowAdd(false)} className="rounded-lg px-4 py-2">Cancel</button>
                 <button type="submit" disabled={saving} className="rounded-lg bg-emerald-400 px-4 py-2 text-slate-900">{saving ? 'Saving...' : 'Create'}</button>
