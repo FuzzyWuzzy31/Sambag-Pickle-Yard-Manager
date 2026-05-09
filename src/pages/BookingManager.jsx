@@ -1,7 +1,9 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import DashboardShell from '../components/DashboardShell'
 import { supabase } from '../lib/supabaseClient'
 import { toast } from 'react-toastify'
+import { motion } from 'framer-motion'
+import { useSwipeable } from 'react-swipeable'
 
 function isoDate(d = new Date()) {
   return d.toISOString().slice(0, 10)
@@ -17,6 +19,7 @@ export default function BookingManagerPage() {
   const startRef = useRef()
   const endRef = useRef()
   const notesRef = useRef()
+  const timelineRef = useRef(null)
 
   async function loadBookings(d = date) {
     setLoading(true)
@@ -34,6 +37,47 @@ export default function BookingManagerPage() {
       setBookings(data || [])
     }
     setLoading(false)
+  }
+
+  const hourlyTimeline = useMemo(() => {
+    const openingHour = 6
+    const closingHour = 23
+    const hours = []
+
+    for (let hour = openingHour; hour < closingHour; hour += 1) {
+      const nextHour = hour + 1
+      const activeBookings = bookings.filter((booking) => {
+        const bookingStart = timeToMinutes(booking.start_time)
+        const bookingEnd = timeToMinutes(booking.end_time)
+        const slotStart = hour * 60
+        const slotEnd = nextHour * 60
+        return bookingStart < slotEnd && bookingEnd > slotStart
+      })
+
+      hours.push({
+        hour,
+        label: formatHour(hour),
+        bookingCount: activeBookings.length,
+        available: activeBookings.length === 0,
+        bookings: activeBookings,
+      })
+    }
+
+    return hours
+  }, [bookings])
+
+  const timelineSwipeHandlers = useSwipeable({
+    onSwipedLeft: () => shiftTimeline(320),
+    onSwipedRight: () => shiftTimeline(-320),
+    preventScrollOnSwipe: true,
+    trackMouse: true,
+    delta: 15,
+  })
+
+  function shiftTimeline(deltaX) {
+    const node = timelineRef.current
+    if (!node) return
+    node.scrollBy({ left: deltaX, behavior: 'smooth' })
   }
 
   useEffect(() => {
@@ -104,12 +148,96 @@ export default function BookingManagerPage() {
 
   return (
     <DashboardShell title={{ label: 'Bookings', heading: `Booking Manager — ${date}` }} subtitle="Manage court reservations, payments, and cancellations">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm" />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none" />
           <button onClick={() => setShowAdd(true)} className="rounded-2xl bg-emerald-400 px-4 py-2 text-sm font-medium text-slate-900">+ Add Booking</button>
         </div>
+        <div className="text-xs text-white/45">Swipe the timeline left or right to browse the day</div>
       </div>
+
+      <section className="mb-5 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-lg shadow-black/10 backdrop-blur-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-[0.26em] text-emerald-300/75">Timeline</div>
+            <h3 className="text-lg font-semibold">Court occupancy</h3>
+          </div>
+          <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/65">
+            {bookings.length} booking{bookings.length === 1 ? '' : 's'}
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-white/60">Loading timeline...</div>
+        ) : (
+          <div {...timelineSwipeHandlers} ref={timelineRef} className="booking-scrollbar overflow-x-auto pb-2">
+            <div className="min-w-max space-y-3 pr-2">
+              <div className="grid grid-cols-[repeat(17,4.5rem)] gap-2 sm:grid-cols-[repeat(17,5.25rem)]">
+                {hourlyTimeline.map((slot) => (
+                  <div
+                    key={slot.hour}
+                    className={`rounded-2xl border px-2 py-3 text-center transition ${slot.available ? 'border-emerald-400/10 bg-emerald-400/5' : 'border-white/10 bg-white/7'}`}
+                  >
+                    <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">{slot.label}</div>
+                    <div className={`mt-2 text-sm font-semibold ${slot.available ? 'text-emerald-200' : 'text-white'}`}>
+                      {slot.available ? 'Available' : `${slot.bookingCount} booked`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="relative rounded-3xl border border-white/10 bg-[#0b1020]/70 p-3">
+                <div className="absolute inset-x-3 top-0 flex justify-between border-b border-white/5 px-1 pb-2 text-[10px] uppercase tracking-[0.24em] text-white/30">
+                  <span>6AM</span>
+                  <span>11PM</span>
+                </div>
+
+                <div className="mt-8 grid grid-cols-[repeat(17,4.5rem)] gap-2 sm:grid-cols-[repeat(17,5.25rem)]">
+                  {hourlyTimeline.map((slot) => (
+                    <div key={`track-${slot.hour}`} className="h-20 rounded-2xl border border-white/5 bg-white/[0.03]" />
+                  ))}
+
+                  {bookings.map((booking, index) => {
+                    const start = timeToMinutes(booking.start_time)
+                    const end = timeToMinutes(booking.end_time)
+                    const totalSlots = (23 - 6) * 60
+                    const left = ((start - 6 * 60) / totalSlots) * 100
+                    const width = ((end - start) / totalSlots) * 100
+                    return (
+                      <motion.div
+                        key={booking.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        className="pointer-events-none absolute left-3 right-3 top-[3.75rem]"
+                        style={{ width: 'calc(100% - 1.5rem)' }}
+                      >
+                        <div
+                          className={`absolute top-0 h-20 rounded-2xl border px-3 py-2 shadow-lg ${booking.payment_status === 'paid' ? 'border-emerald-300/30 bg-emerald-400/20' : booking.payment_status === 'cancelled' ? 'border-white/10 bg-white/10' : 'border-rose-300/30 bg-rose-400/20'}`}
+                          style={{ left: `${left}%`, width: `${Math.max(width, 5)}%` }}
+                        >
+                          <div className="flex h-full flex-col justify-between">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold">{booking.player_name}</div>
+                                <div className="text-[11px] text-white/70">{booking.start_time.slice(0, 5)}–{booking.end_time.slice(0, 5)}</div>
+                              </div>
+                              <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${booking.payment_status === 'paid' ? 'bg-emerald-300 text-slate-950' : booking.payment_status === 'cancelled' ? 'bg-white/20 text-white' : 'bg-rose-300 text-slate-950'}`}>
+                                {booking.payment_status}
+                              </span>
+                            </div>
+                            <div className="text-xs font-medium text-white/85">₱{booking.total_amount}</div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="md:col-span-2">
@@ -122,10 +250,10 @@ export default function BookingManagerPage() {
                     <div>
                       <div className="font-medium">{b.player_name}</div>
                       <div className="text-sm text-white/55">{b.start_time.slice(0,5)} — {b.end_time.slice(0,5)} • ₱{b.total_amount}</div>
-                      {b.notes ? <div className="text-xs text-white/45 mt-1">{b.notes}</div> : null}
+                      {b.notes ? <div className="mt-1 text-xs text-white/45">{b.notes}</div> : null}
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <div className={`px-3 py-1 rounded-full text-xs ${b.payment_status === 'paid' ? 'bg-emerald-400 text-slate-900' : b.payment_status === 'cancelled' ? 'bg-gray-500 text-white' : 'bg-rose-500 text-white'}`}>{b.payment_status.toUpperCase()}</div>
+                      <div className={`rounded-full px-3 py-1 text-xs ${b.payment_status === 'paid' ? 'bg-emerald-400 text-slate-900' : b.payment_status === 'cancelled' ? 'bg-gray-500 text-white' : 'bg-rose-500 text-white'}`}>{b.payment_status.toUpperCase()}</div>
                       <div className="flex gap-2">
                         {b.payment_status !== 'paid' && b.payment_status !== 'cancelled' ? <button onClick={() => markPaid(b)} className="text-xs underline">Mark paid</button> : null}
                         {b.payment_status !== 'cancelled' ? <button onClick={() => handleCancel(b)} className="text-xs underline">Cancel</button> : null}
@@ -167,6 +295,18 @@ export default function BookingManagerPage() {
       ) : null}
     </DashboardShell>
   )
+}
+
+function formatHour(hour) {
+  const suffix = hour >= 12 ? 'PM' : 'AM'
+  const normalized = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+  return `${normalized}${suffix}`
+}
+
+function timeToMinutes(timeValue) {
+  if (!timeValue) return 0
+  const [hours, minutes] = timeValue.split(':').map(Number)
+  return hours * 60 + minutes
 }
 
 function BookingSalesSummary({ date }) {
