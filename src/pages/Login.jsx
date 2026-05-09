@@ -37,18 +37,19 @@ export default function LoginPage() {
           <section className="flex flex-col justify-between rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl sm:p-8 lg:p-10">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-xs uppercase tracking-[0.3em] text-emerald-200">
-                Pickleball Open Play
+                Sambag Pickle Yard Manager
               </div>
               <h1 className="mt-6 max-w-xl text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
-                Track sessions, debts, and players in one clean dashboard.
+                Track open play, bookings, and players in one clean dashboard.
               </h1>
               <p className="mt-4 max-w-xl text-sm leading-6 text-white/60 sm:text-base">
-                Sign in to manage open play attendance, balance payments, review history, and keep every session organized from a single control center.
+                Sign in to manage open play attendance, booking reservations, balance payments, review history, and keep every court session organized from a single control center.
               </p>
             </div>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+            <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {[
+                { label: 'Bookings', value: 'Court reservations' },
                 { label: 'Today', value: 'Live attendance' },
                 { label: 'History', value: 'Past sessions' },
                 { label: 'Debt', value: 'Balances due' },

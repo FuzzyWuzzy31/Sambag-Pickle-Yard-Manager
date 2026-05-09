@@ -121,7 +121,7 @@ export default function BookingManagerPage() {
 
       hours.push({
         hour,
-        label: formatHour(hour),
+        label: `${formatHour(hour)}-${formatHour(nextHour)}`,
         bookingCount: activeBookings.length,
         available: activeBookings.length === 0,
         bookings: activeBookings,
