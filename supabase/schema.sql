@@ -112,7 +112,6 @@ execute procedure sessions_updated_at_trigger();
 -- Helper: ensure a session exists for a given date and return its id
 create or replace function ensure_session(p_date date)
 returns uuid as $$
-declare
   s_id uuid;
 begin
   select id into s_id from sessions where session_date = p_date limit 1;
