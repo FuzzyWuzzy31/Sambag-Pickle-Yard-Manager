@@ -12,16 +12,27 @@ function isoDate(d = new Date()) {
   return d.toISOString().slice(0, 10)
 }
 
+function localIsoDate(d = new Date()) {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export default function TodayPage() {
   const [attendance, setAttendance] = useState([])
   const [loading, setLoading] = useState(true)
   const [sessionExists, setSessionExists] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [todayBookings, setTodayBookings] = useState([])
+  const [todayBookingsLoading, setTodayBookingsLoading] = useState(true)
+  const [todayBookingSales, setTodayBookingSales] = useState({ gross_payments: 0, refunds: 0, net_sales: 0 })
   const navigate = useNavigate()
   const activeDate = useStore((s) => s.activeDate)
   const setActiveDate = useStore((s) => s.setActiveDate)
   const sessionId = useStore((s) => s.sessionId)
   const setSessionId = useStore((s) => s.setSessionId)
+  const todayDate = localIsoDate()
 
   async function loadSession(dateStr) {
     setLoading(true)
@@ -89,10 +100,66 @@ export default function TodayPage() {
     }
   }
 
+  async function loadTodayBookings() {
+    setTodayBookingsLoading(true)
+    try {
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from('bookings')
+        .select('id,player_name,start_time,end_time,payment_status,total_amount,notes,created_at')
+        .eq('booking_date', todayDate)
+        .order('start_time', { ascending: true })
+
+      if (bookingsError) {
+        console.error('today bookings error:', bookingsError)
+        setTodayBookings([])
+      } else {
+        setTodayBookings(bookingsData || [])
+      }
+
+      const { data: salesData, error: salesError } = await supabase
+        .from('booking_daily_sales')
+        .select('gross_payments,refunds,net_sales')
+        .eq('booking_date', todayDate)
+        .maybeSingle()
+
+      if (salesError) {
+        console.error('booking sales error:', salesError)
+        setTodayBookingSales({ gross_payments: 0, refunds: 0, net_sales: 0 })
+      } else {
+        setTodayBookingSales(salesData || { gross_payments: 0, refunds: 0, net_sales: 0 })
+      }
+    } catch (err) {
+      console.error('loadTodayBookings error:', err)
+      setTodayBookings([])
+      setTodayBookingSales({ gross_payments: 0, refunds: 0, net_sales: 0 })
+    } finally {
+      setTodayBookingsLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadSession(activeDate || isoDate())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    loadTodayBookings()
+
+    const bookingsChannel = supabase
+      .channel(`today-bookings-${todayDate}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, loadTodayBookings)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'booking_payments' }, loadTodayBookings)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'booking_cancellations' }, loadTodayBookings)
+      .subscribe()
+
+    return () => {
+      try {
+        supabase.removeChannel(bookingsChannel)
+      } catch (e) {
+        console.warn('Failed to remove bookings channel', e)
+      }
+    }
+  }, [todayDate])
 
   const attendanceChannelRef = useRef(null)
 
@@ -183,6 +250,9 @@ export default function TodayPage() {
                   <p className="text-xs uppercase tracking-[0.28em] text-emerald-300/80">Session control center</p>
                   <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Track today, review history, manage debt, and inspect players from one place.</h2>
                   <p className="text-sm text-white/65">If today is not an open play day, leave it closed here and create the session only when needed.</p>
+                  <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/60">
+                    Booking date: {new Date(todayDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </div>
                 </div>
                 <div className="space-y-3 sm:min-w-[260px]">
                   <label className="block text-xs uppercase tracking-[0.22em] text-white/45">Session date</label>
@@ -204,6 +274,61 @@ export default function TodayPage() {
                   </div>
                 </div>
               </div>
+            </section>
+
+            <section className="mb-4 overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-5 shadow-2xl shadow-black/15 backdrop-blur-sm">
+              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.24em] text-emerald-300/75">Today&apos;s Bookings</div>
+                  <h3 className="text-xl font-semibold">Court reservations for {new Date(todayDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}</h3>
+                </div>
+                <button
+                  onClick={() => navigate('/bookings')}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+                >
+                  Open Booking Manager
+                </button>
+              </div>
+
+              {todayBookingsLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-12" />
+                  <Skeleton className="h-12" />
+                </div>
+              ) : todayBookings.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 p-4 text-sm text-white/55">
+                  No bookings scheduled today
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {todayBookings.map((booking) => (
+                    <div
+                      key={booking.id}
+                      className={`rounded-2xl border p-4 shadow-lg shadow-black/10 ${booking.payment_status === 'paid' ? 'border-emerald-300/20 bg-emerald-400/10' : booking.payment_status === 'cancelled' ? 'border-white/10 bg-white/5' : 'border-rose-300/20 bg-rose-400/10'}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold">{booking.player_name}</div>
+                          <div className="mt-1 text-xs text-white/60">
+                            {booking.start_time.slice(0, 5)}–{booking.end_time.slice(0, 5)}
+                          </div>
+                        </div>
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${booking.payment_status === 'paid' ? 'bg-emerald-300 text-slate-950' : booking.payment_status === 'cancelled' ? 'bg-white/15 text-white' : 'bg-rose-300 text-slate-950'}`}>
+                          {booking.payment_status}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-sm">
+                        <span className="text-white/55">Amount</span>
+                        <span className="font-semibold text-white">₱{booking.total_amount}</span>
+                      </div>
+                      {booking.notes ? <div className="mt-2 text-xs text-white/45">{booking.notes}</div> : null}
+                      <div className="mt-3 text-[11px] uppercase tracking-[0.18em] text-white/35">
+                        Added {new Date(booking.created_at).toLocaleTimeString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
           <div className="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-3">
@@ -306,7 +431,31 @@ export default function TodayPage() {
           </main>
         </PullToRefresh>
 
-        <aside className="self-start lg:sticky lg:top-6">
+        <aside className="self-start space-y-4 lg:sticky lg:top-6">
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-2xl shadow-black/15 backdrop-blur-sm">
+            <div className="text-xs uppercase tracking-[0.24em] text-emerald-300/75">Daily Booking Sales</div>
+            <div className="mt-3 space-y-2 text-sm text-white/70">
+              <div className="flex items-center justify-between">
+                <span>Gross</span>
+                <span className="font-semibold text-white">₱{todayBookingSales.gross_payments}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Refunds</span>
+                <span className="font-semibold text-amber-200">₱{todayBookingSales.refunds}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-white/10 pt-3 text-base">
+                <span>Net</span>
+                <span className="font-semibold text-emerald-200">₱{todayBookingSales.net_sales}</span>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/bookings')}
+              className="mt-4 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white/85 hover:bg-white/10"
+            >
+              Manage bookings
+            </button>
+          </div>
+
           <AddPlayer onAdded={refresh} />
         </aside>
       </div>
