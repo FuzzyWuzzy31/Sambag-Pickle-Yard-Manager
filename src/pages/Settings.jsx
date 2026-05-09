@@ -8,6 +8,13 @@ export default function SettingsPage() {
   const defaultFee = useStore((s) => s.defaultFee)
   const setDefaultFee = useStore((s) => s.setDefaultFee)
   const [feeInput, setFeeInput] = useState(defaultFee)
+  const [bookingSettings, setBookingSettings] = useState({
+    day_rate: 200,
+    night_rate: 250,
+    opening_time: '06:00',
+    closing_time: '23:00',
+  })
+  const [bookingSaving, setBookingSaving] = useState(false)
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(false)
   const [dark, setDark] = useState(() => {
@@ -16,6 +23,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchSessions()
+    fetchBookingSettings()
   }, [])
 
   useEffect(() => {
@@ -32,10 +40,58 @@ export default function SettingsPage() {
     setLoading(false)
   }
 
+  async function fetchBookingSettings() {
+    const { data, error } = await supabase
+      .from('booking_settings')
+      .select('day_rate, night_rate, opening_time, closing_time')
+      .eq('id', true)
+      .maybeSingle()
+
+    if (error) {
+      console.error(error)
+      return
+    }
+
+    if (data) {
+      setBookingSettings({
+        day_rate: data.day_rate ?? 200,
+        night_rate: data.night_rate ?? 250,
+        opening_time: (data.opening_time || '06:00:00').slice(0, 5),
+        closing_time: (data.closing_time || '23:00:00').slice(0, 5),
+      })
+    }
+  }
+
   function saveFee() {
     const v = parseInt(feeInput, 10) || 0
     setDefaultFee(v)
     alert('Default fee updated')
+  }
+
+  async function saveBookingSettings() {
+    setBookingSaving(true)
+    try {
+      const payload = {
+        id: true,
+        day_rate: parseInt(bookingSettings.day_rate, 10) || 200,
+        night_rate: parseInt(bookingSettings.night_rate, 10) || 250,
+        opening_time: bookingSettings.opening_time || '06:00',
+        closing_time: bookingSettings.closing_time || '23:00',
+      }
+
+      const { error } = await supabase
+        .from('booking_settings')
+        .upsert(payload, { onConflict: 'id' })
+
+      if (error) throw error
+      alert('Booking settings saved')
+      fetchBookingSettings()
+    } catch (error) {
+      console.error(error)
+      alert(error.message || 'Failed to save booking settings')
+    } finally {
+      setBookingSaving(false)
+    }
   }
 
   async function createSession() {
@@ -131,6 +187,67 @@ export default function SettingsPage() {
 
             <div className="mt-4">
               <button onClick={exportAllCSV} className="w-full rounded-full border border-white/10 bg-white/5 px-3 py-2">Export All Attendance CSV</button>
+            </div>
+
+            <div className="mt-6 rounded-3xl border border-emerald-300/15 bg-emerald-400/5 p-4">
+              <div className="mb-3">
+                <div className="text-xs uppercase tracking-[0.22em] text-emerald-200/70">Booking Settings</div>
+                <h4 className="mt-1 text-base font-semibold text-white">Court rates and operating hours</h4>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm text-white/70">
+                  Day rate (₱/hour)
+                  <input
+                    type="number"
+                    min="0"
+                    value={bookingSettings.day_rate}
+                    onChange={(e) => setBookingSettings((current) => ({ ...current, day_rate: e.target.value }))}
+                    className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none"
+                  />
+                </label>
+                <label className="block text-sm text-white/70">
+                  Night rate (₱/hour)
+                  <input
+                    type="number"
+                    min="0"
+                    value={bookingSettings.night_rate}
+                    onChange={(e) => setBookingSettings((current) => ({ ...current, night_rate: e.target.value }))}
+                    className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none"
+                  />
+                </label>
+                <label className="block text-sm text-white/70">
+                  Opening time
+                  <input
+                    type="time"
+                    value={bookingSettings.opening_time}
+                    onChange={(e) => setBookingSettings((current) => ({ ...current, opening_time: e.target.value }))}
+                    className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none"
+                  />
+                </label>
+                <label className="block text-sm text-white/70">
+                  Closing time
+                  <input
+                    type="time"
+                    value={bookingSettings.closing_time}
+                    onChange={(e) => setBookingSettings((current) => ({ ...current, closing_time: e.target.value }))}
+                    className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-white outline-none"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <div className="text-xs text-white/45">
+                  Default: 6AM opening, 11PM closing, ₱200 day, ₱250 night
+                </div>
+                <button
+                  onClick={saveBookingSettings}
+                  disabled={bookingSaving}
+                  className="rounded-full bg-emerald-400 px-4 py-2 text-sm font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {bookingSaving ? 'Saving...' : 'Save booking settings'}
+                </button>
+              </div>
             </div>
         </section>
 
