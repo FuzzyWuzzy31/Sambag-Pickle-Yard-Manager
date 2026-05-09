@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { toast } from 'react-toastify'
+import useAppDialog from '../hooks/useAppDialog'
 
 export default function PlayerProfile({ player, onClose }) {
   const [attendance, setAttendance] = useState([])
   const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(true)
+  const { askConfirm, DialogRenderer } = useAppDialog()
 
   useEffect(() => {
     if (!player) return
@@ -40,14 +43,17 @@ export default function PlayerProfile({ player, onClose }) {
   const totalUnpaid = attendance.reduce((s, a) => s + (a.payment_status === 'unpaid' ? a.amount : 0), 0)
 
   async function markPaid(attId, amount) {
-    if (!confirm('Mark this session as paid?')) return
+    const ok = await askConfirm({ title: 'Mark session as paid?', message: 'This will update payment history for this player.', confirmText: 'Mark paid', tone: 'success' })
+    if (!ok) return
     const { error } = await supabase.rpc('mark_attendance_paid', { p_attendance_id: attId, p_amount: amount, p_notes: null })
-    if (error) return alert(error.message)
+    if (error) return toast.error(error.message)
+    toast.success('Session marked paid')
     fetchData()
   }
 
   return (
     <div>
+      <DialogRenderer />
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="text-xl font-semibold">{player.full_name}</div>

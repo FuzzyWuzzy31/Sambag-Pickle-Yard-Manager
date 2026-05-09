@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import { toast } from 'react-toastify'
 import { motion } from 'framer-motion'
 import { useSwipeable } from 'react-swipeable'
+import useAppDialog from '../hooks/useAppDialog'
 
 function isoDate(d = new Date()) {
   return d.toISOString().slice(0, 10)
@@ -15,6 +16,7 @@ export default function BookingManagerPage() {
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [monthBookedDates, setMonthBookedDates] = useState([])
   const [bookingSettings, setBookingSettings] = useState({
     day_rate: 200,
     night_rate: 250,
@@ -28,6 +30,7 @@ export default function BookingManagerPage() {
     notes: '',
   })
   const timelineRef = useRef(null)
+  const { askConfirm, askChoice, DialogRenderer } = useAppDialog()
 
   async function loadBookings(d = date) {
     setLoading(true)
@@ -69,9 +72,42 @@ export default function BookingManagerPage() {
     }
   }
 
+  async function loadMonthBookedDates(targetDate = date) {
+    const [year, month] = targetDate.split('-').map(Number)
+    const monthStartDate = new Date(year, month - 1, 1)
+    const monthEndDate = new Date(year, month, 0)
+    const monthStart = monthStartDate.toISOString().slice(0, 10)
+    const monthEnd = monthEndDate.toISOString().slice(0, 10)
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('booking_date,payment_status')
+      .gte('booking_date', monthStart)
+      .lte('booking_date', monthEnd)
+      .order('booking_date', { ascending: true })
+
+    if (error) {
+      console.error('monthly bookings error', error)
+      setMonthBookedDates([])
+      return
+    }
+
+    const grouped = {}
+    ;(data || []).forEach((row) => {
+      if (!grouped[row.booking_date]) {
+        grouped[row.booking_date] = { booking_date: row.booking_date, count: 0, paidCount: 0, unpaidCount: 0 }
+      }
+      grouped[row.booking_date].count += 1
+      if (row.payment_status === 'paid') grouped[row.booking_date].paidCount += 1
+      if (row.payment_status === 'unpaid') grouped[row.booking_date].unpaidCount += 1
+    })
+
+    setMonthBookedDates(Object.values(grouped))
+  }
+
   const hourlyTimeline = useMemo(() => {
-    const openingHour = 6
-    const closingHour = 23
+    const openingHour = parseInt((bookingSettings.opening_time || '06:00').slice(0, 2), 10)
+    const closingHour = parseInt((bookingSettings.closing_time || '23:00').slice(0, 2), 10)
     const hours = []
 
     for (let hour = openingHour; hour < closingHour; hour += 1) {
@@ -94,7 +130,7 @@ export default function BookingManagerPage() {
     }
 
     return hours
-  }, [bookings])
+  }, [bookings, bookingSettings.closing_time, bookingSettings.opening_time])
 
   const timelineSwipeHandlers = useSwipeable({
     onSwipedLeft: () => shiftTimeline(320),
@@ -113,10 +149,14 @@ export default function BookingManagerPage() {
   useEffect(() => {
     loadBookings(date)
     loadBookingSettings()
+    loadMonthBookedDates(date)
     // subscribe to bookings changes and reload when anything changes
     const ch = supabase
       .channel('realtime-bookings')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => loadBookings(date))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
+        loadBookings(date)
+        loadMonthBookedDates(date)
+      })
       .subscribe()
 
     return () => {
@@ -149,7 +189,8 @@ export default function BookingManagerPage() {
   }
 
   async function markPaid(b) {
-    if (!confirm('Mark booking as PAID?')) return
+    const ok = await askConfirm({ title: 'Mark booking as paid?', message: `${b.player_name} • ${b.start_time.slice(0, 5)}-${b.end_time.slice(0, 5)}`, confirmText: 'Mark paid', tone: 'success' })
+    if (!ok) return
     const { error } = await supabase.rpc('mark_booking_paid', { p_booking_id: b.id, p_amount: b.total_amount })
     if (error) return toast.error(error.message)
     toast.success('Marked paid')
@@ -158,7 +199,8 @@ export default function BookingManagerPage() {
 
   async function handleCancel(b) {
     const paid = b.payment_status === 'paid'
-    if (!confirm(`Cancel booking ${b.player_name}?`)) return
+    const ok = await askConfirm({ title: `Cancel booking for ${b.player_name}?`, message: 'This will free the reserved court time.', confirmText: 'Continue', tone: 'danger' })
+    if (!ok) return
     if (!paid) {
       const { error } = await supabase.rpc('cancel_booking', { p_booking_id: b.id, p_cancel_type: 'unpaid_cancelled' })
       if (error) return toast.error(error.message)
@@ -166,16 +208,21 @@ export default function BookingManagerPage() {
       loadBookings(date)
       return
     }
-    // paid: ask for partial or full
-    const choice = prompt('Paid booking — enter "partial" for 50% refund or "full" for full refund (leave blank to cancel without refund)')
-    let t = null
-    if (choice === 'partial') t = 'partial_refund'
-    else if (choice === 'full') t = 'full_refund'
-    else t = 'unpaid_cancelled'
-    const { error } = await supabase.rpc('cancel_booking', { p_booking_id: b.id, p_cancel_type: t })
+    const choice = await askChoice({
+      title: 'Paid booking cancellation',
+      message: 'Select refund handling for this paid reservation.',
+      options: [
+        { value: 'partial_refund', label: 'Partial refund (50%)', description: 'Refund half of booking total' },
+        { value: 'full_refund', label: 'Full refund', description: 'Refund the full booking amount' },
+        { value: 'unpaid_cancelled', label: 'Cancel without refund', description: 'Mark cancelled with no refund' },
+      ],
+    })
+    if (!choice) return
+    const { error } = await supabase.rpc('cancel_booking', { p_booking_id: b.id, p_cancel_type: choice })
     if (error) return toast.error(error.message)
     toast.success('Booking cancelled')
     loadBookings(date)
+    loadMonthBookedDates(date)
   }
 
   const estimatedBooking = useMemo(() => {
@@ -215,6 +262,7 @@ export default function BookingManagerPage() {
 
   return (
     <DashboardShell title={{ label: 'Bookings', heading: `Booking Manager — ${date}` }} subtitle="Manage court reservations, payments, and cancellations">
+      <DialogRenderer />
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none" />
@@ -222,6 +270,33 @@ export default function BookingManagerPage() {
         </div>
         <div className="text-xs text-white/45">Swipe the timeline left or right to browse the day</div>
       </div>
+
+      <section className="mb-4 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-lg shadow-black/10 backdrop-blur-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-[0.24em] text-emerald-300/75">Booked dates</div>
+            <h3 className="text-lg font-semibold">{new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h3>
+          </div>
+          <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/65">{monthBookedDates.length} active dates</div>
+        </div>
+
+        {monthBookedDates.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-black/15 p-3 text-sm text-white/55">No bookings for this month yet.</div>
+        ) : (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {monthBookedDates.map((item) => (
+              <button
+                key={item.booking_date}
+                onClick={() => setDate(item.booking_date)}
+                className={`min-w-[10rem] rounded-2xl border px-3 py-2 text-left transition ${date === item.booking_date ? 'border-emerald-300/40 bg-emerald-400/20' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}
+              >
+                <div className="text-sm font-semibold">{new Date(`${item.booking_date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>
+                <div className="mt-1 text-xs text-white/60">{item.count} booking{item.count === 1 ? '' : 's'} • {item.unpaidCount} unpaid</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="mb-5 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-lg shadow-black/10 backdrop-blur-sm">
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -255,8 +330,8 @@ export default function BookingManagerPage() {
 
               <div className="relative rounded-3xl border border-white/10 bg-[#0b1020]/70 p-3">
                 <div className="absolute inset-x-3 top-0 flex justify-between border-b border-white/5 px-1 pb-2 text-[10px] uppercase tracking-[0.24em] text-white/30">
-                  <span>6AM</span>
-                  <span>11PM</span>
+                  <span>{formatHourFromTime(bookingSettings.opening_time)}</span>
+                  <span>{formatHourFromTime(bookingSettings.closing_time)}</span>
                 </div>
 
                 <div className="mt-8 grid grid-cols-[repeat(17,4.5rem)] gap-2 sm:grid-cols-[repeat(17,5.25rem)]">
@@ -342,16 +417,17 @@ export default function BookingManagerPage() {
       </div>
 
       {showAdd ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <form onSubmit={handleCreate} className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-6">
-            <h3 className="mb-3 text-lg font-semibold">Add Booking</h3>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
+          <form onSubmit={handleCreate} className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl border border-white/15 bg-[linear-gradient(160deg,rgba(17,24,39,0.96),rgba(15,23,42,0.92))] p-6 shadow-2xl shadow-black/45">
+            <h3 className="mb-1 text-3xl font-semibold tracking-tight">Add Booking</h3>
+            <p className="mb-4 text-sm text-white/60">Create a reservation using your configured operating hours and rates.</p>
             <div className="space-y-3">
-              <input value={bookingForm.playerName} onChange={(e) => setBookingForm((current) => ({ ...current, playerName: e.target.value }))} placeholder="Player name" className="w-full rounded-lg bg-white/3 px-3 py-2" />
+              <input value={bookingForm.playerName} onChange={(e) => setBookingForm((current) => ({ ...current, playerName: e.target.value }))} placeholder="Player name" className="w-full rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:border-emerald-300/40" />
               <div className="flex gap-2">
-                <input value={bookingForm.startTime} onChange={(e) => setBookingForm((current) => ({ ...current, startTime: e.target.value }))} type="time" className="w-1/2 rounded-lg bg-white/3 px-3 py-2" />
-                <input value={bookingForm.endTime} onChange={(e) => setBookingForm((current) => ({ ...current, endTime: e.target.value }))} type="time" className="w-1/2 rounded-lg bg-white/3 px-3 py-2" />
+                <input value={bookingForm.startTime} onChange={(e) => setBookingForm((current) => ({ ...current, startTime: e.target.value }))} type="time" min={bookingSettings.opening_time} max={bookingSettings.closing_time} step={1800} style={{ colorScheme: 'dark' }} className="w-1/2 rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-white outline-none focus:border-emerald-300/40" />
+                <input value={bookingForm.endTime} onChange={(e) => setBookingForm((current) => ({ ...current, endTime: e.target.value }))} type="time" min={bookingSettings.opening_time} max={bookingSettings.closing_time} step={1800} style={{ colorScheme: 'dark' }} className="w-1/2 rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-white outline-none focus:border-emerald-300/40" />
               </div>
-              <textarea value={bookingForm.notes} onChange={(e) => setBookingForm((current) => ({ ...current, notes: e.target.value }))} placeholder="Notes (optional)" className="w-full rounded-lg bg-white/3 px-3 py-2" />
+              <textarea value={bookingForm.notes} onChange={(e) => setBookingForm((current) => ({ ...current, notes: e.target.value }))} placeholder="Notes (optional)" className="w-full rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:border-emerald-300/40" />
               <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                 <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">Rate preview</div>
                 <div className="mt-1 text-sm text-white/70">
@@ -371,8 +447,8 @@ export default function BookingManagerPage() {
                 </div>
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setShowAdd(false)} className="rounded-lg px-4 py-2">Cancel</button>
-                <button type="submit" disabled={saving} className="rounded-lg bg-emerald-400 px-4 py-2 text-slate-900">{saving ? 'Saving...' : 'Create'}</button>
+                <button type="button" onClick={() => setShowAdd(false)} className="rounded-2xl border border-white/15 bg-white/5 px-4 py-2 text-white/80">Cancel</button>
+                <button type="submit" disabled={saving} className="rounded-2xl bg-emerald-400 px-4 py-2 font-semibold text-slate-900">{saving ? 'Saving...' : 'Create'}</button>
               </div>
             </div>
           </form>
@@ -386,6 +462,11 @@ function formatHour(hour) {
   const suffix = hour >= 12 ? 'PM' : 'AM'
   const normalized = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
   return `${normalized}${suffix}`
+}
+
+function formatHourFromTime(timeString = '06:00') {
+  const hour = parseInt(timeString.slice(0, 2), 10)
+  return formatHour(hour)
 }
 
 function timeToMinutes(timeValue) {

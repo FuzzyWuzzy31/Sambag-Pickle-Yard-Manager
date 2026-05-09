@@ -4,6 +4,8 @@ import { useStore } from '../store/useStore'
 import AddPlayer from '../components/AddPlayer'
 import PlayerCard from '../components/PlayerCard'
 import DashboardShell from '../components/DashboardShell'
+import useAppDialog from '../hooks/useAppDialog'
+import { toast } from 'react-toastify'
 
 function isoDate(d) {
   return d.toISOString().slice(0, 10)
@@ -16,6 +18,7 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(false)
   const setSessionId = useStore((s) => s.setSessionId)
   const setActiveDate = useStore((s) => s.setActiveDate)
+  const { askConfirm, askPrompt, DialogRenderer } = useAppDialog()
 
   useEffect(() => {
     fetchSessions()
@@ -43,9 +46,10 @@ export default function HistoryPage() {
   }
 
   async function removeAttendance(id) {
-    if (!confirm('Remove attendance record?')) return
+    const ok = await askConfirm({ title: 'Remove attendance record?', message: 'This cannot be undone.', confirmText: 'Remove', tone: 'danger' })
+    if (!ok) return
     const { error } = await supabase.from('attendance').delete().eq('id', id)
-    if (error) return alert(error.message)
+    if (error) return toast.error(error.message)
     // refresh
     if (selected) openSession(selected)
   }
@@ -53,7 +57,7 @@ export default function HistoryPage() {
   async function createSession(dateStr) {
     const d = dateStr || isoDate(new Date())
     const { data, error } = await supabase.rpc('ensure_session', { p_date: d })
-    if (error) return alert(error.message)
+    if (error) return toast.error(error.message)
     fetchSessions()
     // open new session
     const newId = data
@@ -71,13 +75,20 @@ export default function HistoryPage() {
       title={{ label: 'History', heading: 'Transaction history' }}
       subtitle="Browse past sessions, reopen a day, and clean up attendance records."
     >
+      <DialogRenderer />
       <main className="grid grid-cols-1 gap-4 lg:grid-cols-[0.95fr_1.05fr]">
         <section className="rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold">Sessions</h3>
               <button
-                onClick={() => {
-                  const d = prompt('Enter date (YYYY-MM-DD) to create session')
+                onClick={async () => {
+                  const d = await askPrompt({
+                    title: 'Create session',
+                    message: 'Enter session date in YYYY-MM-DD format.',
+                    placeholder: 'YYYY-MM-DD',
+                    defaultValue: isoDate(new Date()),
+                    confirmText: 'Create',
+                  })
                   if (d) createSession(d)
                 }}
                 className="rounded-full bg-emerald-400 px-3 py-2 text-sm font-medium text-slate-950"

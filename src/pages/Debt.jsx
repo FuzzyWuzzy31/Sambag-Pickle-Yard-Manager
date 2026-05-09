@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import DashboardShell from '../components/DashboardShell'
+import { toast } from 'react-toastify'
+import useAppDialog from '../hooks/useAppDialog'
 
 export default function DebtPage() {
   const [debts, setDebts] = useState([])
   const [loading, setLoading] = useState(true)
+  const { askConfirm, DialogRenderer } = useAppDialog()
 
   useEffect(() => {
     fetchDebts()
@@ -29,9 +32,11 @@ export default function DebtPage() {
   }
 
   async function payEntry(playerId, attendanceId, amount) {
-    if (!confirm('Mark this date as PAID?')) return
+    const ok = await askConfirm({ title: 'Mark this date as paid?', message: 'This will update debt totals immediately.', confirmText: 'Mark paid', tone: 'success' })
+    if (!ok) return
     const { error } = await supabase.rpc('mark_attendance_paid', { p_attendance_id: attendanceId, p_amount: amount, p_notes: null })
-    if (error) return alert(error.message)
+    if (error) return toast.error(error.message)
+    toast.success('Payment recorded')
     fetchDebts()
   }
 
@@ -40,6 +45,7 @@ export default function DebtPage() {
       title={{ label: 'Debt', heading: 'Debt tracker' }}
       subtitle="See who still owes for open play and settle balances per session date."
     >
+      <DialogRenderer />
       <main className="rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Outstanding debts</h3>

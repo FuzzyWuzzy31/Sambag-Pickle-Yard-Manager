@@ -3,6 +3,8 @@ import { useStore } from '../store/useStore'
 import { supabase } from '../lib/supabaseClient'
 import { toCSV, downloadCSV } from '../lib/csv'
 import DashboardShell from '../components/DashboardShell'
+import useAppDialog from '../hooks/useAppDialog'
+import { toast } from 'react-toastify'
 
 export default function SettingsPage() {
   const defaultFee = useStore((s) => s.defaultFee)
@@ -20,6 +22,7 @@ export default function SettingsPage() {
   const [dark, setDark] = useState(() => {
     try { return localStorage.getItem('dark') === '1' } catch (e) { return true }
   })
+  const { askConfirm, askPrompt, DialogRenderer } = useAppDialog()
 
   useEffect(() => {
     fetchSessions()
@@ -65,7 +68,7 @@ export default function SettingsPage() {
   function saveFee() {
     const v = parseInt(feeInput, 10) || 0
     setDefaultFee(v)
-    alert('Default fee updated')
+    toast.success('Default fee updated')
   }
 
   async function saveBookingSettings() {
@@ -84,36 +87,56 @@ export default function SettingsPage() {
         .upsert(payload, { onConflict: 'id' })
 
       if (error) throw error
-      alert('Booking settings saved')
+      toast.success('Booking settings saved')
       fetchBookingSettings()
     } catch (error) {
       console.error(error)
-      alert(error.message || 'Failed to save booking settings')
+      toast.error(error.message || 'Failed to save booking settings')
     } finally {
       setBookingSaving(false)
     }
   }
 
   async function createSession() {
-    const d = prompt('Enter session date (YYYY-MM-DD)')
+    const d = await askPrompt({
+      title: 'Create session',
+      message: 'Enter session date in YYYY-MM-DD format.',
+      placeholder: 'YYYY-MM-DD',
+      confirmText: 'Create',
+    })
     if (!d) return
     const { data, error } = await supabase.rpc('ensure_session', { p_date: d })
-    if (error) return alert(error.message)
+    if (error) return toast.error(error.message)
+    toast.success('Session created')
     fetchSessions()
   }
 
   async function editSessionDate(s) {
-    const d = prompt('New date (YYYY-MM-DD)', new Date(s.session_date).toISOString().slice(0,10))
+    const d = await askPrompt({
+      title: 'Edit session date',
+      message: 'Update session date in YYYY-MM-DD format.',
+      placeholder: 'YYYY-MM-DD',
+      defaultValue: new Date(s.session_date).toISOString().slice(0,10),
+      confirmText: 'Save',
+    })
     if (!d) return
     const { error } = await supabase.from('sessions').update({ session_date: d }).eq('id', s.id)
-    if (error) return alert(error.message)
+    if (error) return toast.error(error.message)
+    toast.success('Session date updated')
     fetchSessions()
   }
 
   async function deleteSession(s) {
-    if (!confirm('Delete session and all attendance?')) return
+    const ok = await askConfirm({
+      title: 'Delete session and attendance?',
+      message: 'This action permanently deletes this session and all related attendance records.',
+      confirmText: 'Delete',
+      tone: 'danger',
+    })
+    if (!ok) return
     const { error } = await supabase.from('sessions').delete().eq('id', s.id)
-    if (error) return alert(error.message)
+    if (error) return toast.error(error.message)
+    toast.success('Session deleted')
     fetchSessions()
   }
 
@@ -135,7 +158,7 @@ export default function SettingsPage() {
       downloadCSV('attendance_export.csv', csv)
     } catch (e) {
       console.error(e)
-      alert('Export failed')
+      toast.error('Export failed')
     } finally { setLoading(false) }
   }
 
@@ -156,7 +179,7 @@ export default function SettingsPage() {
       downloadCSV(`session_${s.session_date}_export.csv`, csv)
     } catch (e) {
       console.error(e)
-      alert('Export failed')
+      toast.error('Export failed')
     } finally { setLoading(false) }
   }
 
@@ -165,6 +188,7 @@ export default function SettingsPage() {
       title={{ label: 'Settings', heading: 'Workspace settings' }}
       subtitle="Tune fees, export data, and manage sessions from a single control panel."
     >
+      <DialogRenderer />
       <main className="grid grid-cols-1 gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <section className="rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
             <h3 className="mb-4 text-lg font-semibold">General</h3>

@@ -7,6 +7,7 @@ import AddPlayer from '../components/AddPlayer'
 import { useNavigate } from 'react-router-dom'
 import DashboardShell from '../components/DashboardShell'
 import { toast } from 'react-toastify'
+import useAppDialog from '../hooks/useAppDialog'
 
 function isoDate(d = new Date()) {
   return d.toISOString().slice(0, 10)
@@ -33,6 +34,7 @@ export default function TodayPage() {
   const sessionId = useStore((s) => s.sessionId)
   const setSessionId = useStore((s) => s.setSessionId)
   const todayDate = localIsoDate()
+  const { askConfirm, DialogRenderer } = useAppDialog()
 
   async function loadSession(dateStr) {
     setLoading(true)
@@ -216,7 +218,8 @@ export default function TodayPage() {
   }
 
   async function removeAttendance(attendanceItem) {
-    if (!confirm('Remove attendance record?')) return
+    const ok = await askConfirm({ title: 'Remove attendance record?', message: 'This action cannot be undone.', confirmText: 'Remove', tone: 'danger' })
+    if (!ok) return
 
     const { error } = await supabase.from('attendance').delete().eq('id', attendanceItem.id)
     if (error) {
@@ -241,6 +244,7 @@ export default function TodayPage() {
         </button>,
       ]}
     >
+      <DialogRenderer />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <PullToRefresh onRefresh={() => loadSession(activeDate || isoDate())} className="mt-0 min-w-0">
           <main>
