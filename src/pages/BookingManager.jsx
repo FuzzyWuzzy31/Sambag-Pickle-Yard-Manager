@@ -74,10 +74,9 @@ export default function BookingManagerPage() {
 
   async function loadMonthBookedDates(targetDate = date) {
     const [year, month] = targetDate.split('-').map(Number)
-    const monthStartDate = new Date(year, month - 1, 1)
-    const monthEndDate = new Date(year, month, 0)
-    const monthStart = monthStartDate.toISOString().slice(0, 10)
-    const monthEnd = monthEndDate.toISOString().slice(0, 10)
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+    const monthEndDay = new Date(year, month, 0).getDate()
+    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(monthEndDay).padStart(2, '0')}`
 
     const { data, error } = await supabase
       .from('bookings')
@@ -314,7 +313,7 @@ export default function BookingManagerPage() {
         ) : (
           <div {...timelineSwipeHandlers} ref={timelineRef} className="booking-scrollbar overflow-x-auto pb-2">
             <div className="min-w-max space-y-3 pr-2">
-              <div className="grid grid-cols-[repeat(17,4.5rem)] gap-2 sm:grid-cols-[repeat(17,5.25rem)]">
+              <div className="grid grid-cols-[repeat(17,5rem)] gap-2 sm:grid-cols-[repeat(17,5.75rem)]">
                 {hourlyTimeline.map((slot) => (
                   <div
                     key={slot.hour}
@@ -328,35 +327,38 @@ export default function BookingManagerPage() {
                 ))}
               </div>
 
-              <div className="relative rounded-3xl border border-white/10 bg-[#0b1020]/70 p-3">
+              <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0b1020]/70 p-3">
                 <div className="absolute inset-x-3 top-0 flex justify-between border-b border-white/5 px-1 pb-2 text-[10px] uppercase tracking-[0.24em] text-white/30">
                   <span>{formatHourFromTime(bookingSettings.opening_time)}</span>
                   <span>{formatHourFromTime(bookingSettings.closing_time)}</span>
                 </div>
 
-                <div className="mt-8 grid grid-cols-[repeat(17,4.5rem)] gap-2 sm:grid-cols-[repeat(17,5.25rem)]">
+                <div className="mt-10 grid grid-cols-[repeat(17,5rem)] gap-2 sm:grid-cols-[repeat(17,5.75rem)]">
                   {hourlyTimeline.map((slot) => (
-                    <div key={`track-${slot.hour}`} className="h-20 rounded-2xl border border-white/5 bg-white/[0.03]" />
+                    <div key={`track-${slot.hour}`} className="h-24 rounded-2xl border border-white/5 bg-white/[0.03]" />
                   ))}
 
                   {bookings.map((booking, index) => {
                     const start = timeToMinutes(booking.start_time)
                     const end = timeToMinutes(booking.end_time)
-                    const totalSlots = (23 - 6) * 60
-                    const left = ((start - 6 * 60) / totalSlots) * 100
+                    const opening = timeToMinutes(bookingSettings.opening_time)
+                    const closing = timeToMinutes(bookingSettings.closing_time)
+                    const totalSlots = closing - opening
+                    const left = ((start - opening) / totalSlots) * 100
                     const width = ((end - start) / totalSlots) * 100
+                    const safeLeft = Math.max(0, left)
+                    const safeWidth = Math.min(100 - safeLeft, Math.max(width, 4))
                     return (
                       <motion.div
                         key={booking.id}
-                        initial={{ opacity: 0, y: 10 }}
+                        initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.03 }}
-                        className="pointer-events-none absolute left-3 right-3 top-[3.75rem]"
-                        style={{ width: 'calc(100% - 1.5rem)' }}
+                        className="absolute left-3 right-3 top-[3.35rem] h-24"
                       >
                         <div
-                          className={`absolute top-0 h-20 rounded-2xl border px-3 py-2 shadow-lg ${booking.payment_status === 'paid' ? 'border-emerald-300/30 bg-emerald-400/20' : booking.payment_status === 'cancelled' ? 'border-white/10 bg-white/10' : 'border-rose-300/30 bg-rose-400/20'}`}
-                          style={{ left: `${left}%`, width: `${Math.max(width, 5)}%` }}
+                          className={`absolute top-2 h-20 rounded-2xl border px-3 py-2 shadow-lg ${booking.payment_status === 'paid' ? 'border-emerald-300/30 bg-emerald-400/20' : booking.payment_status === 'cancelled' ? 'border-white/10 bg-white/10' : 'border-rose-300/30 bg-rose-400/20'}`}
+                          style={{ left: `${safeLeft}%`, width: `${safeWidth}%` }}
                         >
                           <div className="flex h-full flex-col justify-between">
                             <div className="flex items-start justify-between gap-2">
@@ -444,6 +446,9 @@ export default function BookingManagerPage() {
                   <div className="text-right text-xs text-white/55">
                     {estimatedBooking.hours > 0 ? `${estimatedBooking.hours.toFixed(2)} hrs` : estimatedBooking.rateLabel}
                   </div>
+                </div>
+                <div className="mt-3 text-xs text-white/45">
+                  Operating hours only: {bookingSettings.opening_time} to {bookingSettings.closing_time}
                 </div>
               </div>
               <div className="flex justify-end gap-2">

@@ -24,7 +24,7 @@ export default function DashboardShell({ title, subtitle, children, actions }) {
       <div className="mx-auto flex min-h-screen max-w-[1600px] gap-0 md:gap-6">
         <aside className="hidden w-72 shrink-0 border-r border-white/10 bg-white/[0.03] px-4 py-5 backdrop-blur-xl md:flex md:flex-col">
           <div className="mb-8">
-            <div className="text-xs uppercase tracking-[0.35em] text-white/40">PeoplePro</div>
+            <div className="text-xs uppercase tracking-[0.35em] text-white/40">Sambag Pickle Yard</div>
             <div className="mt-2 text-2xl font-semibold tracking-tight">Open Play</div>
             <div className="mt-1 text-sm text-white/55">Pickleball session manager</div>
           </div>
@@ -76,7 +76,7 @@ export default function DashboardShell({ title, subtitle, children, actions }) {
           <div className="sticky top-0 z-30 border-b border-white/10 bg-[#0b1020]/80 px-4 py-3 backdrop-blur-xl md:hidden">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-[10px] uppercase tracking-[0.28em] text-white/40">PeoplePro</div>
+                <div className="text-[10px] uppercase tracking-[0.28em] text-white/40">Sambag Pickle Yard</div>
                 <div className="text-sm font-semibold">Open Play</div>
               </div>
               <div className="flex gap-2">
