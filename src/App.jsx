@@ -6,6 +6,7 @@ import HistoryPage from './pages/History'
 import DebtPage from './pages/Debt'
 import PlayersPage from './pages/Players'
 import SettingsPage from './pages/Settings'
+import BookingManagerPage from './pages/BookingManager'
 import { useAuth } from './hooks/useAuth'
 
 function Protected({ children }) {
@@ -28,6 +29,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<TodayPage />} />
               <Route path="/history" element={<HistoryPage />} />
+              <Route path="/bookings" element={<BookingManagerPage />} />
               <Route path="/debt" element={<DebtPage />} />
               <Route path="/players" element={<PlayersPage />} />
               <Route path="/settings" element={<SettingsPage />} />

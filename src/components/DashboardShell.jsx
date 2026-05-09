@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 
 const navItems = [
   { to: '/', label: 'Dashboard', hint: 'Today session' },
+  { to: '/bookings', label: 'Bookings', hint: 'Court reservations' },
   { to: '/history', label: 'History', hint: 'Past sessions' },
   { to: '/debt', label: 'Debt', hint: 'Unpaid balances' },
   { to: '/players', label: 'Players', hint: 'Search and analytics' },
