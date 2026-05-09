@@ -10,6 +10,14 @@ function isoDate(d = new Date()) {
   return d.toISOString().slice(0, 10)
 }
 
+function getMonthBounds(targetDate) {
+  const [year, month] = targetDate.split('-').map(Number)
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const monthEndDay = new Date(year, month, 0).getDate()
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(monthEndDay).padStart(2, '0')}`
+  return { monthStart, monthEnd }
+}
+
 export default function BookingManagerPage() {
   const [date, setDate] = useState(isoDate())
   const [bookings, setBookings] = useState([])
@@ -17,6 +25,7 @@ export default function BookingManagerPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
   const [monthBookedDates, setMonthBookedDates] = useState([])
+  const [monthSales, setMonthSales] = useState({ gross: 0, refunds: 0, net: 0, days: 0 })
   const [bookingSettings, setBookingSettings] = useState({
     day_rate: 200,
     night_rate: 250,
@@ -73,10 +82,7 @@ export default function BookingManagerPage() {
   }
 
   async function loadMonthBookedDates(targetDate = date) {
-    const [year, month] = targetDate.split('-').map(Number)
-    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
-    const monthEndDay = new Date(year, month, 0).getDate()
-    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(monthEndDay).padStart(2, '0')}`
+    const { monthStart, monthEnd } = getMonthBounds(targetDate)
 
     const { data, error } = await supabase
       .from('bookings')
@@ -103,6 +109,35 @@ export default function BookingManagerPage() {
     })
 
     setMonthBookedDates(Object.values(grouped))
+  }
+
+  async function loadMonthSales(targetDate = date) {
+    const { monthStart, monthEnd } = getMonthBounds(targetDate)
+
+    const { data, error } = await supabase
+      .from('booking_daily_sales')
+      .select('booking_date,gross_payments,refunds,net_sales')
+      .gte('booking_date', monthStart)
+      .lte('booking_date', monthEnd)
+
+    if (error) {
+      console.error('monthly sales error', error)
+      setMonthSales({ gross: 0, refunds: 0, net: 0, days: 0 })
+      return
+    }
+
+    const summary = (data || []).reduce(
+      (acc, row) => {
+        acc.gross += Number(row.gross_payments) || 0
+        acc.refunds += Number(row.refunds) || 0
+        acc.net += Number(row.net_sales) || 0
+        acc.days += 1
+        return acc
+      },
+      { gross: 0, refunds: 0, net: 0, days: 0 },
+    )
+
+    setMonthSales(summary)
   }
 
   const hourlyTimeline = useMemo(() => {
@@ -151,12 +186,14 @@ export default function BookingManagerPage() {
     loadBookings(date)
     loadBookingSettings()
     loadMonthBookedDates(date)
+    loadMonthSales(date)
     // subscribe to bookings changes and reload when anything changes
     const ch = supabase
       .channel('realtime-bookings')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
         loadBookings(date)
         loadMonthBookedDates(date)
+        loadMonthSales(date)
       })
       .subscribe()
 
@@ -196,6 +233,7 @@ export default function BookingManagerPage() {
     if (error) return toast.error(error.message)
     toast.success('Marked paid')
     loadBookings(date)
+    loadMonthSales(date)
   }
 
   async function handleCancel(b) {
@@ -224,6 +262,25 @@ export default function BookingManagerPage() {
     toast.success('Booking cancelled')
     loadBookings(date)
     loadMonthBookedDates(date)
+    loadMonthSales(date)
+  }
+
+  async function removeBooking(b) {
+    const ok = await askConfirm({
+      title: `Remove booking for ${b.player_name}?`,
+      message: 'This permanently deletes the booking and removes it from sales records.',
+      confirmText: 'Remove booking',
+      tone: 'danger',
+    })
+    if (!ok) return
+
+    const { error } = await supabase.from('bookings').delete().eq('id', b.id)
+    if (error) return toast.error(error.message)
+
+    toast.success('Booking removed')
+    loadBookings(date)
+    loadMonthBookedDates(date)
+    loadMonthSales(date)
   }
 
   const estimatedBooking = useMemo(() => {
@@ -297,6 +354,35 @@ export default function BookingManagerPage() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="mb-4 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-lg shadow-black/10 backdrop-blur-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-[0.24em] text-emerald-300/75">Monthly sales</div>
+            <h3 className="text-lg font-semibold">{new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h3>
+          </div>
+          <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/65">{monthSales.days} sales day{monthSales.days === 1 ? '' : 's'}</div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-white/45">Gross</div>
+            <div className="mt-1 text-2xl font-semibold">₱{monthSales.gross}</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-white/45">Refunds</div>
+            <div className="mt-1 text-2xl font-semibold">₱{monthSales.refunds}</div>
+          </div>
+          <div className="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-emerald-100/70">Net sales</div>
+            <div className="mt-1 text-2xl font-semibold">₱{monthSales.net}</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-white/45">Average per sales day</div>
+            <div className="mt-1 text-2xl font-semibold">₱{monthSales.days > 0 ? Math.round(monthSales.net / monthSales.days) : 0}</div>
+          </div>
+        </div>
       </section>
 
       <section className="mb-5 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-lg shadow-black/10 backdrop-blur-sm">
@@ -401,6 +487,7 @@ export default function BookingManagerPage() {
                       <div className="flex gap-2">
                         {b.payment_status !== 'paid' && b.payment_status !== 'cancelled' ? <button onClick={() => markPaid(b)} className="text-xs underline">Mark paid</button> : null}
                         {b.payment_status !== 'cancelled' ? <button onClick={() => handleCancel(b)} className="text-xs underline">Cancel</button> : null}
+                        <button onClick={() => removeBooking(b)} className="text-xs underline text-rose-200">Remove</button>
                       </div>
                     </div>
                   </li>
