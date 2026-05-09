@@ -513,10 +513,29 @@ export default function BookingManagerPage() {
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <div className={`rounded-full px-3 py-1 text-xs ${b.payment_status === 'paid' ? 'bg-emerald-400 text-slate-900' : b.payment_status === 'cancelled' ? 'bg-gray-500 text-white' : 'bg-rose-500 text-white'}`}>{b.payment_status.toUpperCase()}</div>
-                      <div className="flex gap-2">
-                        {b.payment_status !== 'paid' && b.payment_status !== 'cancelled' ? <button onClick={() => markPaid(b)} className="text-xs underline">Mark paid</button> : null}
-                        {b.payment_status !== 'cancelled' ? <button onClick={() => handleCancel(b)} className="text-xs underline">Cancel</button> : null}
-                        <button onClick={() => removeBooking(b)} className="text-xs underline text-rose-200">Remove</button>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {b.payment_status !== 'paid' && b.payment_status !== 'cancelled' ? (
+                          <button
+                            onClick={() => markPaid(b)}
+                            className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition hover:border-emerald-300/35 hover:bg-emerald-400/15"
+                          >
+                            Mark paid
+                          </button>
+                        ) : null}
+                        {b.payment_status !== 'cancelled' ? (
+                          <button
+                            onClick={() => handleCancel(b)}
+                            className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 transition hover:border-amber-300/35 hover:bg-amber-400/15"
+                          >
+                            Cancel
+                          </button>
+                        ) : null}
+                        <button
+                          onClick={() => removeBooking(b)}
+                          className="rounded-full border border-rose-300/20 bg-rose-400/10 px-3 py-1.5 text-[11px] font-semibold text-rose-100 transition hover:border-rose-300/35 hover:bg-rose-400/15"
+                        >
+                          Remove
+                        </button>
                       </div>
                     </div>
                   </li>
